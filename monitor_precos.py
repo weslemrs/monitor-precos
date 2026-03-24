@@ -1,13 +1,14 @@
 """
-Monitor de Preços com IA
-========================
+Monitor de Preços com IA (Groq — gratuito)
+==========================================
 Requisitos:
-    pip install requests beautifulsoup4 anthropic
+    pip install requests beautifulsoup4 groq
 
 Variáveis de ambiente necessárias:
-    ANTHROPIC_API_KEY  — chave da API da Anthropic
-                         Localmente: export ANTHROPIC_API_KEY="sk-ant-..."
-                         No GitHub:  configurar em Settings > Secrets
+    GROQ_API_KEY  — chave da API da Groq
+                    Cadastro gratuito em: https://console.groq.com
+                    Localmente: export GROQ_API_KEY="gsk_..."
+                    No GitHub:  Settings > Secrets > New secret
 """
 
 import csv
@@ -15,21 +16,20 @@ import json
 import os
 from datetime import datetime
 
-import anthropic
 import requests
 from bs4 import BeautifulSoup
+from groq import Groq
 
 # ─────────────────────────────────────────────
 # CONFIGURAÇÃO — edite aqui
 # ─────────────────────────────────────────────
 
-# Lê a chave do ambiente — nunca coloque a chave direto no código!
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY")
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 
-if not ANTHROPIC_API_KEY:
+if not GROQ_API_KEY:
     raise EnvironmentError(
-        "Variável ANTHROPIC_API_KEY não encontrada.\n"
-        "Localmente: export ANTHROPIC_API_KEY='sk-ant-...'\n"
+        "Variável GROQ_API_KEY não encontrada.\n"
+        "Localmente: export GROQ_API_KEY='gsk_...'\n"
         "No GitHub: Settings > Secrets and variables > Actions > New secret"
     )
 
@@ -81,7 +81,7 @@ def extrair_texto_limpo(html: str) -> str:
 
 
 def extrair_preco_com_ia(texto_pagina: str, nome_produto: str) -> dict:
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+    client = Groq(api_key=GROQ_API_KEY)
 
     prompt = f"""Você é um extrator de preços de páginas de supermercado.
 
@@ -97,7 +97,7 @@ Responda APENAS com um JSON válido, sem explicação, sem markdown:
   "preco": 12.99,
   "unidade": "pacote 20 unidades",
   "confianca": "alta",
-  "observacao": "preço encontrado na seção de destaque"
+  "observacao": "preco encontrado na secao de destaque"
 }}
 
 Se não encontrar o preço, retorne:
@@ -105,20 +105,21 @@ Se não encontrar o preço, retorne:
   "preco": null,
   "unidade": null,
   "confianca": "nenhuma",
-  "observacao": "motivo pelo qual não encontrou"
+  "observacao": "motivo pelo qual nao encontrou"
 }}
 """
 
     try:
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=300,
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",  # Modelo gratuito e rápido
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=300,
+            temperature=0,  # Zero = respostas mais consistentes para extração
         )
-        resposta = message.content[0].text.strip()
+        resposta = response.choices[0].message.content.strip()
         resposta = resposta.replace("```json", "").replace("```", "").strip()
         return json.loads(resposta)
-    except (json.JSONDecodeError, anthropic.APIError) as e:
+    except (json.JSONDecodeError, Exception) as e:
         print(f"  Erro na IA: {e}")
         return {"preco": None, "unidade": None, "confianca": "erro", "observacao": str(e)}
 
