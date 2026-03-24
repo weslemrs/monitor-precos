@@ -1,0 +1,48 @@
+# .github/workflows/monitor_precos.yml
+#
+# Roda o monitor de preços automaticamente todo dia às 08:00 (horário de Brasília)
+# O GitHub Actions usa UTC, então 08:00 BRT = 11:00 UTC
+
+name: Monitor de Preços
+
+on:
+  schedule:
+    - cron: "0 11 * * *"   # Todo dia às 08:00 BRT
+
+  workflow_dispatch:         # Permite rodar manualmente pelo painel do GitHub
+
+jobs:
+  monitorar:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Baixa o código do repositório
+      - name: Checkout do repositório
+        uses: actions/checkout@v4
+
+      # 2. Configura o Python
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # 3. Instala as dependências
+      - name: Instalar dependências
+        run: pip install requests beautifulsoup4 anthropic
+
+      # 4. Roda o script
+      #    A chave da API vem do GitHub Secrets (nunca fica exposta no código)
+      - name: Rodar monitor de preços
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python monitor_precos.py
+
+      # 5. Salva o CSV atualizado de volta no repositório
+      #    Assim o histórico acumula a cada execução
+      - name: Salvar histórico no repositório
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add historico_precos.csv
+          git diff --cached --quiet || git commit -m "chore: atualiza preços $(date +'%d/%m/%Y %H:%M')"
+          git push
