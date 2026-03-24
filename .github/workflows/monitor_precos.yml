@@ -28,13 +28,13 @@ jobs:
 
       # 3. Instala as dependências
       - name: Instalar dependências
-        run: pip install requests beautifulsoup4 anthropic
+        run: pip install requests beautifulsoup4 groq
 
       # 4. Roda o script
       #    A chave da API vem do GitHub Secrets (nunca fica exposta no código)
       - name: Rodar monitor de preços
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
         run: python monitor_precos.py
 
       # 5. Salva o CSV atualizado de volta no repositório
