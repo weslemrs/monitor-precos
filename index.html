@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor de Preços</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap');
+
+  :root {
+    --bg: #0e0f11;
+    --surface: #16181c;
+    --surface2: #1e2026;
+    --border: #2a2d35;
+    --text: #e8eaf0;
+    --muted: #666c7a;
+    --accent: #c8f560;
+    --accent2: #60c8f5;
+    --danger: #f56060;
+    --up: #f5a060;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    padding: 0 0 60px;
+  }
+
+  /* HEADER */
+  header {
+    border-bottom: 1px solid var(--border);
+    padding: 28px 40px 24px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  .header-left h1 {
+    font-size: 22px;
+    font-weight: 500;
+    letter-spacing: -0.4px;
+    color: var(--text);
+  }
+  .header-left p {
+    margin-top: 4px;
+    color: var(--muted);
+    font-size: 13px;
+    font-family: 'DM Mono', monospace;
+  }
+  .dot {
+    display: inline-block;
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--accent);
+    margin-right: 6px;
+    animation: pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  /* FILTRO */
+  .filters {
+    padding: 20px 40px;
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+  }
+  .filter-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 6px 14px;
+    border-radius: 20px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--accent); color: var(--text); }
+  .filter-btn.active { background: var(--accent); border-color: var(--accent); color: #0e0f11; font-weight: 500; }
+
+  /* CARDS */
+  .cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px;
+    padding: 28px 40px;
+  }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    cursor: pointer;
+    transition: border-color 0.15s, transform 0.15s;
+    position: relative;
+    overflow: hidden;
+  }
+  .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: var(--accent);
+    opacity: 0;
+    transition: opacity 0.15s;
+  }
+  .card:hover { border-color: #3a3d45; transform: translateY(-1px); }
+  .card:hover::before { opacity: 1; }
+  .card.selected { border-color: var(--accent); }
+  .card.selected::before { opacity: 1; }
+
+  .card-loja {
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-bottom: 8px;
+  }
+  .card-nome {
+    font-size: 14px;
+    font-weight: 400;
+    color: var(--text);
+    line-height: 1.4;
+    margin-bottom: 16px;
+    min-height: 40px;
+  }
+  .card-preco {
+    font-size: 28px;
+    font-weight: 300;
+    font-family: 'DM Mono', monospace;
+    color: var(--accent);
+    letter-spacing: -1px;
+  }
+  .card-preco span {
+    font-size: 14px;
+    color: var(--muted);
+    margin-right: 2px;
+  }
+  .card-delta {
+    margin-top: 8px;
+    font-size: 12px;
+    font-family: 'DM Mono', monospace;
+  }
+  .delta-up { color: var(--danger); }
+  .delta-down { color: var(--accent); }
+  .delta-same { color: var(--muted); }
+  .card-data {
+    margin-top: 12px;
+    font-size: 11px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+  }
+
+  /* GRÁFICO */
+  .chart-section {
+    padding: 0 40px 28px;
+  }
+  .chart-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+  }
+  .chart-title {
+    font-size: 13px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+  }
+  .chart-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    position: relative;
+    height: 260px;
+  }
+
+  /* TABELA */
+  .table-section {
+    padding: 0 40px;
+  }
+  .table-title {
+    font-size: 13px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    margin-bottom: 16px;
+  }
+  .table-wrap {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { border-bottom: 1px solid var(--border); }
+  th {
+    text-align: left;
+    padding: 12px 20px;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    font-weight: 400;
+  }
+  td {
+    padding: 12px 20px;
+    font-size: 13px;
+    border-bottom: 1px solid var(--border);
+    color: var(--text);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: var(--surface2); }
+  td.mono { font-family: 'DM Mono', monospace; }
+  td.price { color: var(--accent); font-family: 'DM Mono', monospace; }
+  td.muted { color: var(--muted); }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-family: 'DM Mono', monospace;
+  }
+  .badge-alta { background: rgba(200,245,96,0.1); color: var(--accent); }
+  .badge-media { background: rgba(96,200,245,0.1); color: var(--accent2); }
+  .badge-baixa { background: rgba(245,160,96,0.1); color: var(--up); }
+  .badge-erro { background: rgba(245,96,96,0.1); color: var(--danger); }
+
+  /* LOADING / EMPTY */
+  .state-msg {
+    text-align: center;
+    padding: 60px 40px;
+    color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+  }
+  .state-msg strong { color: var(--text); display: block; margin-bottom: 8px; font-size: 15px; }
+
+  /* CONFIG MODAL */
+  .config-btn {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 7px 16px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    transition: all 0.15s;
+  }
+  .config-btn:hover { border-color: var(--accent); color: var(--text); }
+
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 28px;
+    width: 90%;
+    max-width: 480px;
+  }
+  .modal h2 { font-size: 16px; font-weight: 500; margin-bottom: 6px; }
+  .modal p { color: var(--muted); font-size: 13px; margin-bottom: 20px; line-height: 1.5; }
+  .modal label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: 0.5px; }
+  .modal input {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 13px;
+    margin-bottom: 20px;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .modal input:focus { border-color: var(--accent); }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .btn-primary {
+    background: var(--accent);
+    color: #0e0f11;
+    border: none;
+    padding: 9px 20px;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 9px 20px;
+    border-radius: 8px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    cursor: pointer;
+  }
+
+  @media (max-width: 600px) {
+    header, .filters, .cards, .chart-section, .table-section { padding-left: 16px; padding-right: 16px; }
+    .card-preco { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-left">
+    <h1><span class="dot"></span>Monitor de Preços</h1>
+    <p id="last-update">carregando dados...</p>
+  </div>
+  <button class="config-btn" onclick="openModal()">⚙ configurar fonte</button>
+</header>
+
+<div class="filters" id="filters"></div>
+<div class="cards" id="cards"></div>
+
+<div class="chart-section">
+  <div class="chart-header">
+    <span class="chart-title" id="chart-label">evolução de preços</span>
+  </div>
+  <div class="chart-wrap">
+    <canvas id="chart"></canvas>
+  </div>
+</div>
+
+<div class="table-section" style="margin-top:28px">
+  <div class="table-title">histórico completo</div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>data</th>
+          <th>produto</th>
+          <th>loja</th>
+          <th>preço</th>
+          <th>unidade</th>
+          <th>confiança</th>
+        </tr>
+      </thead>
+      <tbody id="table-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- CONFIG MODAL -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <h2>Fonte de dados</h2>
+    <p>Cole a URL raw do seu <code>historico_precos.csv</code> no GitHub.<br>
+    Ex: <code>https://raw.githubusercontent.com/SEU_USUARIO/monitor-precos/main/historico_precos.csv</code></p>
+    <label>URL do CSV</label>
+    <input type="text" id="csv-url-input" placeholder="https://raw.githubusercontent.com/...">
+    <div class="modal-actions">
+      <button class="btn-secondary" onclick="closeModal()">cancelar</button>
+      <button class="btn-primary" onclick="saveAndLoad()">carregar dados</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── CONFIG ───────────────────────────────────
+const STORAGE_KEY = 'monitor_csv_url';
+let CSV_URL = localStorage.getItem(STORAGE_KEY) || '';
+let allData = [];
+let selectedProduct = null;
+let chartInstance = null;
+
+// ─── MODAL ────────────────────────────────────
+function openModal() {
+  document.getElementById('csv-url-input').value = CSV_URL;
+  document.getElementById('modal').classList.add('open');
+}
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+}
+function saveAndLoad() {
+  const val = document.getElementById('csv-url-input').value.trim();
+  if (!val) return;
+  CSV_URL = val;
+  localStorage.setItem(STORAGE_KEY, CSV_URL);
+  closeModal();
+  loadData();
+}
+
+// ─── LOAD ─────────────────────────────────────
+function loadData() {
+  if (!CSV_URL) {
+    showState('Configure a fonte de dados', 'Clique em "configurar fonte" e cole a URL do seu CSV do GitHub.');
+    return;
+  }
+
+  showState('Carregando...', 'Buscando dados do repositório.');
+
+  Papa.parse(CSV_URL + '?t=' + Date.now(), {
+    download: true,
+    header: true,
+    skipEmptyLines: true,
+    complete(results) {
+      allData = results.data.filter(r => r.preco && r.preco !== '');
+      if (!allData.length) {
+        showState('Sem dados ainda', 'O CSV está vazio ou sem preços registrados. Aguarde a próxima execução do workflow.');
+        return;
+      }
+      render(allData);
+    },
+    error(e) {
+      showState('Erro ao carregar', 'Verifique se a URL está correta e se o repositório é público.');
+    }
+  });
+}
+
+function showState(title, msg) {
+  document.getElementById('cards').innerHTML = `<div class="state-msg" style="grid-column:1/-1"><strong>${title}</strong>${msg}</div>`;
+  document.getElementById('table-body').innerHTML = '';
+  document.getElementById('filters').innerHTML = '';
+}
+
+// ─── RENDER ───────────────────────────────────
+function render(data) {
+  // Última atualização
+  const last = data[data.length - 1];
+  document.getElementById('last-update').textContent = `atualizado em ${last.data} às ${last.hora}`;
+
+  // Produtos únicos
+  const produtos = [...new Set(data.map(r => r.nome))];
+
+  // Filtros
+  const filtersEl = document.getElementById('filters');
+  filtersEl.innerHTML = '';
+  const allBtn = makeFilterBtn('todos', null, produtos);
+  filtersEl.appendChild(allBtn);
+  produtos.forEach(p => filtersEl.appendChild(makeFilterBtn(p.split(' - ')[0], p, produtos)));
+
+  // Cards (último preço de cada produto)
+  renderCards(data, produtos);
+
+  // Gráfico inicial (todos)
+  renderChart(data, null);
+
+  // Tabela
+  renderTable(data);
+}
+
+function makeFilterBtn(label, produto, produtos) {
+  const btn = document.createElement('button');
+  btn.className = 'filter-btn' + (produto === selectedProduct ? ' active' : '');
+  if (produto === null && selectedProduct === null) btn.classList.add('active');
+  btn.textContent = label.length > 30 ? label.slice(0, 28) + '…' : label;
+  btn.onclick = () => {
+    selectedProduct = produto;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderCards(allData, produtos);
+    renderChart(allData, produto);
+    renderTable(allData);
+  };
+  return btn;
+}
+
+function renderCards(data, produtos) {
+  const cardsEl = document.getElementById('cards');
+  cardsEl.innerHTML = '';
+
+  const filtered = selectedProduct ? produtos.filter(p => p === selectedProduct) : produtos;
+
+  filtered.forEach(nome => {
+    const registros = data.filter(r => r.nome === nome).sort((a,b) => {
+      const da = parseData(a.data + ' ' + a.hora);
+      const db = parseData(b.data + ' ' + b.hora);
+      return da - db;
+    });
+
+    const ultimo = registros[registros.length - 1];
+    const penultimo = registros.length > 1 ? registros[registros.length - 2] : null;
+
+    const precoAtual = parseFloat(ultimo.preco);
+    const precoPrev = penultimo ? parseFloat(penultimo.preco) : null;
+    const delta = precoPrev ? ((precoAtual - precoPrev) / precoPrev * 100) : null;
+
+    let deltaHtml = '';
+    if (delta !== null) {
+      if (Math.abs(delta) < 0.5) {
+        deltaHtml = `<div class="card-delta delta-same">→ sem variação</div>`;
+      } else if (delta > 0) {
+        deltaHtml = `<div class="card-delta delta-up">↑ +${delta.toFixed(1)}% em relação à última coleta</div>`;
+      } else {
+        deltaHtml = `<div class="card-delta delta-down">↓ ${delta.toFixed(1)}% em relação à última coleta</div>`;
+      }
+    }
+
+    const card = document.createElement('div');
+    card.className = 'card' + (selectedProduct === nome ? ' selected' : '');
+    card.innerHTML = `
+      <div class="card-loja">${ultimo.loja}</div>
+      <div class="card-nome">${nome.replace(' - ' + ultimo.loja, '')}</div>
+      <div class="card-preco"><span>R$</span>${precoAtual.toFixed(2)}</div>
+      ${deltaHtml}
+      <div class="card-data">${ultimo.data} · ${ultimo.hora}</div>
+    `;
+    card.onclick = () => {
+      selectedProduct = nome;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.card').forEach(c => c.classList.remove('selected'));
+      card.classList.add('selected');
+      renderChart(allData, nome);
+      renderTable(allData);
+    };
+    cardsEl.appendChild(card);
+  });
+}
+
+function renderChart(data, produto) {
+  const filtered = produto ? data.filter(r => r.nome === produto) : data;
+  const produtos = [...new Set(filtered.map(r => r.nome))];
+
+  document.getElementById('chart-label').textContent =
+    produto ? 'evolução — ' + produto.split(' - ')[0].toLowerCase() : 'evolução de preços — todos os produtos';
+
+  // Cores distintas
+  const cores = ['#c8f560','#60c8f5','#f5a060','#f56060','#c860f5','#60f5c8'];
+
+  const datasets = produtos.map((nome, i) => {
+    const registros = filtered
+      .filter(r => r.nome === nome && r.preco)
+      .sort((a,b) => parseData(a.data+' '+a.hora) - parseData(b.data+' '+b.hora));
+
+    return {
+      label: nome.split(' - ')[0],
+      data: registros.map(r => ({ x: r.data + ' ' + r.hora, y: parseFloat(r.preco) })),
+      borderColor: cores[i % cores.length],
+      backgroundColor: cores[i % cores.length] + '18',
+      borderWidth: 1.5,
+      pointRadius: 4,
+      pointHoverRadius: 6,
+      tension: 0.3,
+      fill: true,
+    };
+  });
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(document.getElementById('chart'), {
+    type: 'line',
+    data: { datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: {
+          labels: {
+            color: '#666c7a',
+            font: { family: 'DM Mono', size: 11 },
+            boxWidth: 12,
+            padding: 16,
+          }
+        },
+        tooltip: {
+          backgroundColor: '#1e2026',
+          borderColor: '#2a2d35',
+          borderWidth: 1,
+          titleColor: '#666c7a',
+          bodyColor: '#e8eaf0',
+          titleFont: { family: 'DM Mono', size: 11 },
+          bodyFont: { family: 'DM Mono', size: 12 },
+          callbacks: {
+            label: ctx => ` R$ ${ctx.parsed.y.toFixed(2)}`
+          }
+        }
+      },
+      scales: {
+        x: {
+          ticks: { color: '#666c7a', font: { family: 'DM Mono', size: 10 }, maxTicksLimit: 8 },
+          grid: { color: '#2a2d35' },
+          border: { color: '#2a2d35' },
+        },
+        y: {
+          ticks: {
+            color: '#666c7a',
+            font: { family: 'DM Mono', size: 10 },
+            callback: v => 'R$ ' + v.toFixed(2)
+          },
+          grid: { color: '#2a2d35' },
+          border: { color: '#2a2d35' },
+        }
+      }
+    }
+  });
+}
+
+function renderTable(data) {
+  const filtered = selectedProduct ? data.filter(r => r.nome === selectedProduct) : data;
+  const sorted = [...filtered].sort((a,b) => parseData(b.data+' '+b.hora) - parseData(a.data+' '+a.hora));
+
+  const tbody = document.getElementById('table-body');
+  tbody.innerHTML = sorted.slice(0, 100).map(r => `
+    <tr>
+      <td class="mono">${r.data} ${r.hora}</td>
+      <td>${r.nome}</td>
+      <td class="muted">${r.loja}</td>
+      <td class="price">R$ ${parseFloat(r.preco || 0).toFixed(2)}</td>
+      <td class="muted">${r.unidade || '—'}</td>
+      <td><span class="badge badge-${r.confianca}">${r.confianca}</span></td>
+    </tr>
+  `).join('');
+}
+
+// ─── UTILS ────────────────────────────────────
+function parseData(str) {
+  // "dd/mm/yyyy HH:MM" → Date
+  const [d, t] = str.split(' ');
+  if (!d) return new Date(0);
+  const [dd, mm, yyyy] = d.split('/');
+  return new Date(`${yyyy}-${mm}-${dd}T${t || '00:00'}:00`);
+}
+
+// ─── INIT ─────────────────────────────────────
+if (CSV_URL) {
+  loadData();
+} else {
+  showState('Configure a fonte de dados', 'Clique em "configurar fonte" no canto superior direito e cole a URL raw do seu CSV no GitHub.');
+}
+</script>
+</body>
+</html>
