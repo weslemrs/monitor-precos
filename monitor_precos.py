@@ -1,14 +1,14 @@
 """
 Monitor de Preços com IA (Groq — gratuito)
 ==========================================
+Versão 2 — busca os dois produtos mais baratos numa página de resultados
+
 Requisitos:
     pip install requests beautifulsoup4 groq
 
 Variáveis de ambiente necessárias:
     GROQ_API_KEY  — chave da API da Groq
                     Cadastro gratuito em: https://console.groq.com
-                    Localmente: export GROQ_API_KEY="gsk_..."
-                    No GitHub:  Settings > Secrets > New secret
 """
 
 import csv
@@ -33,18 +33,16 @@ if not GROQ_API_KEY:
         "No GitHub: Settings > Secrets and variables > Actions > New secret"
     )
 
-PRODUTOS = [
+# Cada entrada agora é uma página de BUSCA, não de produto único
+# O script vai encontrar os dois mais baratos dentro dessa página
+BUSCAS = [
     {
-        "nome": "Ovos brancos tipo grande c/20 - Pague Menos",
-        "url": "https://www.superpaguemenos.com.br/ovos-brancos-tipo-grande-com-20-unidades/p",
+        "produto": "Ovos 20 unidades",
+        "url": "https://www.superpaguemenos.com.br/ovos%20brancos%2020%20unidades/",
         "loja": "Pague Menos",
+        "filtro_classe": "item product",  # classe CSS dos blocos de produto
     },
-    {
-        "nome": "Ovos - Tauste",
-        "url": "https://tauste.com.br/marilia/hortifruti/ovos.html",
-        "loja": "Tauste",
-    },
-    # Adicione mais produtos aqui no mesmo formato
+    # Adicione mais buscas aqui no mesmo formato
 ]
 
 CSV_SAIDA = "historico_precos.csv"
@@ -71,61 +69,83 @@ def buscar_html(url: str) -> str | None:
         return None
 
 
-def extrair_texto_limpo(html: str) -> str:
+def extrair_blocos_produto(html: str, filtro_classe: str) -> str:
+    """
+    Em vez de pegar todo o texto da página:
+    1. Encontra só os blocos com a classe CSS dos produtos
+    2. Filtra os que mencionam "20" e "unidade" (para garantir que são ovos c/20)
+    3. Retorna o texto limpo desses blocos
+    """
     soup = BeautifulSoup(html, "html.parser")
-    for tag in soup(["script", "style", "nav", "footer", "header", "meta", "link"]):
-        tag.decompose()
-    texto = soup.get_text(separator="\n", strip=True)
-    linhas = [l for l in texto.splitlines() if l.strip()]
-    return "\n".join(linhas[:150])
+
+    # Pega só os blocos de produto
+    blocos = soup.find_all(class_=filtro_classe)
+
+    blocos_filtrados = []
+    for bloco in blocos:
+        texto = bloco.get_text(separator=" ", strip=True)
+        # Filtra só os blocos que mencionam 20 unidades
+        if "20" in texto and ("unidade" in texto.lower() or "und" in texto.lower()):
+            blocos_filtrados.append(texto)
+
+    if not blocos_filtrados:
+        # Se não encontrou com filtro, manda todos os blocos
+        blocos_filtrados = [b.get_text(separator=" ", strip=True) for b in blocos]
+
+    return "\n---\n".join(blocos_filtrados[:20])  # Limita a 20 blocos
 
 
-def extrair_preco_com_ia(texto_pagina: str, nome_produto: str) -> dict:
+def extrair_mais_baratos_com_ia(blocos_texto: str, nome_produto: str) -> dict:
+    """
+    Manda os blocos de produto pra IA e pede os dois mais baratos com marca.
+    """
     client = Groq(api_key=GROQ_API_KEY)
 
-    prompt = f"""Você é um extrator de preços de páginas de supermercado.
+    prompt = f"""Estou te enviando blocos de texto extraídos de uma página de supermercado.
+Cada bloco separado por "---" representa um produto diferente.
+Todos são relacionados a: {nome_produto}
 
-Produto buscado: {nome_produto}
-
-Texto extraído da página:
+Blocos:
 ---
-{texto_pagina}
+{blocos_texto}
 ---
 
-Responda APENAS com um JSON válido, sem explicação, sem markdown:
+Encontre o preço e a marca de cada produto.
+Retorne os dois produtos com menor preço.
+Responda APENAS com JSON válido, sem explicação, sem markdown:
+
 {{
-  "preco": 12.99,
-  "unidade": "pacote 20 unidades",
-  "confianca": "alta",
-  "observacao": "preco encontrado na secao de destaque"
+  "produtos": [
+    {{"marca": "Nome da marca", "preco": 0.00, "unidade": "20 unidades"}},
+    {{"marca": "Nome da marca", "preco": 0.00, "unidade": "20 unidades"}}
+  ]
 }}
 
-Se não encontrar o preço, retorne:
+Se não encontrar dois produtos, retorne apenas os que encontrar.
+Se não encontrar nenhum, retorne:
 {{
-  "preco": null,
-  "unidade": null,
-  "confianca": "nenhuma",
-  "observacao": "motivo pelo qual nao encontrou"
+  "produtos": [],
+  "observacao": "motivo pelo qual não encontrou"
 }}
 """
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-8b-instant",  # Modelo gratuito e rápido
+            model="llama-3.1-8b-instant",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=300,
-            temperature=0,  # Zero = respostas mais consistentes para extração
+            max_tokens=500,
+            temperature=0,
         )
         resposta = response.choices[0].message.content.strip()
         resposta = resposta.replace("```json", "").replace("```", "").strip()
         return json.loads(resposta)
     except (json.JSONDecodeError, Exception) as e:
         print(f"  Erro na IA: {e}")
-        return {"preco": None, "unidade": None, "confianca": "erro", "observacao": str(e)}
+        return {"produtos": [], "observacao": str(e)}
 
 
 def salvar_csv(linha: dict):
-    cabecalho = ["data", "hora", "loja", "nome", "preco", "unidade", "confianca", "observacao", "url"]
+    cabecalho = ["data", "hora", "loja", "produto", "posicao", "marca", "preco", "unidade", "url"]
     arquivo_existe = os.path.exists(CSV_SAIDA)
     with open(CSV_SAIDA, "a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=cabecalho)
@@ -140,39 +160,57 @@ def salvar_csv(linha: dict):
 
 def main():
     agora = datetime.now()
-    print(f"\nMonitor de Precos — {agora.strftime('%d/%m/%Y %H:%M')}")
+    print(f"\nMonitor de Precos v2 — {agora.strftime('%d/%m/%Y %H:%M')}")
     print("=" * 50)
 
-    for produto in PRODUTOS:
-        print(f"\nProduto: {produto['nome']}")
-        print(f"URL: {produto['url']}")
+    for busca in BUSCAS:
+        print(f"\nProduto: {busca['produto']} — {busca['loja']}")
+        print(f"URL: {busca['url']}")
 
-        html = buscar_html(produto["url"])
+        # Passo 1: Busca o HTML
+        html = buscar_html(busca["url"])
         if not html:
             continue
 
-        texto = extrair_texto_limpo(html)
+        # Passo 2: Extrai só os blocos de produto relevantes
+        blocos = extrair_blocos_produto(html, busca["filtro_classe"])
+        print(f"  Blocos encontrados: {blocos.count('---') + 1}")
 
-        print("Enviando para a IA...")
-        resultado = extrair_preco_com_ia(texto, produto["nome"])
+        # Passo 3: IA encontra os dois mais baratos
+        print("  Enviando para a IA...")
+        resultado = extrair_mais_baratos_com_ia(blocos, busca["produto"])
 
-        if resultado["preco"]:
-            print(f"Preco: R$ {resultado['preco']:.2f} ({resultado['unidade']})")
-            print(f"Confianca: {resultado['confianca']}")
-        else:
-            print(f"Nao encontrado: {resultado['observacao']}")
+        produtos = resultado.get("produtos", [])
 
-        salvar_csv({
-            "data": agora.strftime("%d/%m/%Y"),
-            "hora": agora.strftime("%H:%M"),
-            "loja": produto["loja"],
-            "nome": produto["nome"],
-            "preco": resultado.get("preco", ""),
-            "unidade": resultado.get("unidade", ""),
-            "confianca": resultado.get("confianca", ""),
-            "observacao": resultado.get("observacao", ""),
-            "url": produto["url"],
-        })
+        if not produtos:
+            print(f"  Nao encontrado: {resultado.get('observacao', 'sem detalhes')}")
+            salvar_csv({
+                "data": agora.strftime("%d/%m/%Y"),
+                "hora": agora.strftime("%H:%M"),
+                "loja": busca["loja"],
+                "produto": busca["produto"],
+                "posicao": "",
+                "marca": "",
+                "preco": "",
+                "unidade": "",
+                "url": busca["url"],
+            })
+            continue
+
+        # Passo 4: Exibe e salva os dois mais baratos
+        for i, p in enumerate(produtos, 1):
+            print(f"  #{i} {p.get('marca','?')} — R$ {p.get('preco', 0):.2f} ({p.get('unidade','?')})")
+            salvar_csv({
+                "data": agora.strftime("%d/%m/%Y"),
+                "hora": agora.strftime("%H:%M"),
+                "loja": busca["loja"],
+                "produto": busca["produto"],
+                "posicao": i,
+                "marca": p.get("marca", ""),
+                "preco": p.get("preco", ""),
+                "unidade": p.get("unidade", ""),
+                "url": busca["url"],
+            })
 
     print(f"\nConcluido! Dados salvos em: {CSV_SAIDA}\n")
 
